@@ -60,3 +60,6 @@
   - Server response: [server_response.proto]
     - Status-code: int32
     - Message: string
+    - Is-successful: bool
+    
+    > [NOTE]: Each implementation of this protocol can design their own codes to handle the status of the server response.
