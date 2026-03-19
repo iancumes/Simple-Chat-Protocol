@@ -1,4 +1,16 @@
-# .gitignore (.gitignore)
+# Build directory
+build/
 
-*.cc
-*.h
+# Generated protobuf files (in protos/)
+protos/**/*.pb.cc
+protos/**/*.pb.h
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
