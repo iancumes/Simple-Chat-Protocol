@@ -3,8 +3,6 @@ project(SimpleChat LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-# NOTE: Do NOT set CMAKE_AUTOMOC globally – it conflicts with protobuf generated headers.
-# AUTOMOC is enabled per-target on chat_client only.
 
 # ============================================================
 # Find dependencies
@@ -28,8 +26,11 @@ endif()
 find_package(Threads REQUIRED)
 
 # ============================================================
-# Generate protobuf sources
+# Generate protobuf sources into a static library
 # ============================================================
+# Building proto sources as a library ensures all .pb.h files
+# are generated BEFORE any server/client source file compiles.
+# This prevents "file not found" errors in parallel builds.
 
 set(PROTO_DIR "${CMAKE_SOURCE_DIR}/protos")
 
@@ -49,26 +50,21 @@ set(PROTO_FILES
     ${PROTO_DIR}/server-side/get_user_info_response.proto
 )
 
-# Generate .pb.cc and .pb.h into build directory
 protobuf_generate_cpp(PROTO_SRCS PROTO_HDRS ${PROTO_FILES})
 
-# Mark generated protobuf files so AUTOMOC skips them
-set_source_files_properties(${PROTO_SRCS} ${PROTO_HDRS} PROPERTIES
-    SKIP_AUTOMOC ON
-    SKIP_AUTOUIC ON
-    SKIP_AUTORCC ON
-)
-
-# Make generated headers available
-# protobuf_generate_cpp puts headers next to sources in CMAKE_CURRENT_BINARY_DIR
-include_directories(${CMAKE_CURRENT_BINARY_DIR})
+# Static library for generated protobuf code
+add_library(proto_gen STATIC ${PROTO_SRCS} ${PROTO_HDRS})
+set_target_properties(proto_gen PROPERTIES AUTOMOC OFF)
+target_include_directories(proto_gen PUBLIC ${CMAKE_CURRENT_BINARY_DIR})
+target_include_directories(proto_gen PUBLIC ${Protobuf_INCLUDE_DIRS})
+target_link_libraries(proto_gen ${Protobuf_LIBRARIES})
 
 # ============================================================
 # Include paths
 # ============================================================
 
 include_directories(${CMAKE_SOURCE_DIR}/include)
-include_directories(${Protobuf_INCLUDE_DIRS})
+include_directories(${CMAKE_CURRENT_BINARY_DIR})
 
 # ============================================================
 # chat_server target
@@ -77,15 +73,12 @@ include_directories(${Protobuf_INCLUDE_DIRS})
 add_executable(chat_server
     src/server/main.cpp
     src/server/server.cpp
-    ${PROTO_SRCS}
-    ${PROTO_HDRS}
 )
 
-# Server does not use Qt – explicitly disable AUTOMOC
 set_target_properties(chat_server PROPERTIES AUTOMOC OFF)
 
 target_link_libraries(chat_server
-    ${Protobuf_LIBRARIES}
+    proto_gen
     Threads::Threads
 )
 
@@ -97,20 +90,16 @@ add_executable(chat_client
     src/client/main.cpp
     src/client/mainwindow.cpp
     src/client/network.cpp
-    ${PROTO_SRCS}
-    ${PROTO_HDRS}
 )
 
-# Enable AUTOMOC only for the client (it uses Qt signals/slots)
 set_target_properties(chat_client PROPERTIES AUTOMOC ON)
 
-# Client needs access to its own headers directory for MOC
 target_include_directories(chat_client PRIVATE
     ${CMAKE_SOURCE_DIR}/src/client
 )
 
 target_link_libraries(chat_client
-    ${Protobuf_LIBRARIES}
+    proto_gen
     ${QT_LIBS}
     Threads::Threads
 )
