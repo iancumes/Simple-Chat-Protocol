@@ -11,7 +11,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(Protobuf REQUIRED)
 find_package(Threads REQUIRED)
 
-# Qt – try Qt6 first, fall back to Qt5
 find_package(Qt6 COMPONENTS Widgets QUIET)
 if(Qt6_FOUND)
     message(STATUS "Found Qt6 Widgets")
@@ -23,34 +22,27 @@ else()
 endif()
 
 # ============================================================
-# Generate protobuf sources manually
+# Generate protobuf sources
 # ============================================================
-# We invoke protoc once to generate ALL .pb.cc/.pb.h files,
-# then compile them into a static library. This guarantees
-# every generated file exists before any compilation starts.
+# protoc generates output filenames based on the relative path from
+# --proto_path.  By listing the subdirectory-specific paths FIRST,
+# protoc sees e.g. register.proto (not cliente-side/register.proto)
+# and generates FLAT output: register.pb.cc / register.pb.h.
+# The generic protos/ path is listed LAST so "import common.proto"
+# still resolves correctly.
 
-set(PROTO_DIR "${CMAKE_SOURCE_DIR}/protos")
-set(PROTO_OUT "${CMAKE_BINARY_DIR}/proto_gen")
+set(PROTO_DIR   "${CMAKE_SOURCE_DIR}/protos")
+set(PROTO_OUT   "${CMAKE_BINARY_DIR}/proto_gen")
 file(MAKE_DIRECTORY ${PROTO_OUT})
 
-# List of proto files (basenames only, paths handled below)
 set(PROTO_BASENAMES
     common
-    register
-    message_general
-    message_dm
-    change_status
-    list_users
-    get_user_info
-    quit
-    server_response
-    all_users
-    for_dm
-    broadcast_messages
-    get_user_info_response
+    register  message_general  message_dm
+    change_status  list_users  get_user_info  quit
+    server_response  all_users  for_dm
+    broadcast_messages  get_user_info_response
 )
 
-# Full paths to .proto source files
 set(PROTO_FILES
     ${PROTO_DIR}/common.proto
     ${PROTO_DIR}/cliente-side/register.proto
@@ -67,7 +59,7 @@ set(PROTO_FILES
     ${PROTO_DIR}/server-side/get_user_info_response.proto
 )
 
-# Build lists of expected generated files
+# Expected generated files
 set(PROTO_SRCS "")
 set(PROTO_HDRS "")
 foreach(base ${PROTO_BASENAMES})
@@ -75,35 +67,37 @@ foreach(base ${PROTO_BASENAMES})
     list(APPEND PROTO_HDRS "${PROTO_OUT}/${base}.pb.h")
 endforeach()
 
-# Single custom command that generates ALL proto files at once
+# Single command: generate ALL .pb.cc/.pb.h at once, flat in PROTO_OUT.
+# --proto_path order matters: specific subdirs FIRST so protoc uses
+# the shortest relative name (e.g. "register.proto" not
+# "cliente-side/register.proto").
 add_custom_command(
-    OUTPUT ${PROTO_SRCS} ${PROTO_HDRS}
+    OUTPUT  ${PROTO_SRCS} ${PROTO_HDRS}
     COMMAND ${Protobuf_PROTOC_EXECUTABLE}
+        --proto_path=${PROTO_DIR}/cliente-side
+        --proto_path=${PROTO_DIR}/server-side
         --proto_path=${PROTO_DIR}
         --cpp_out=${PROTO_OUT}
         ${PROTO_FILES}
     DEPENDS ${PROTO_FILES}
-    COMMENT "Generating protobuf sources..."
+    COMMENT "Generating protobuf C++ sources..."
     VERBATIM
 )
 
-# Custom target that depends on all generated files
-add_custom_target(generate_protos DEPENDS ${PROTO_SRCS} ${PROTO_HDRS})
-
-# Static library from generated protobuf code
-add_library(proto_gen STATIC ${PROTO_SRCS} ${PROTO_HDRS})
+# Static library from generated code.
+# Listing PROTO_SRCS as sources creates a proper file-level dependency
+# on the custom command above, so generation always runs first.
+add_library(proto_gen STATIC ${PROTO_SRCS})
 set_target_properties(proto_gen PROPERTIES AUTOMOC OFF)
-add_dependencies(proto_gen generate_protos)
 target_include_directories(proto_gen PUBLIC ${PROTO_OUT})
 target_include_directories(proto_gen PUBLIC ${Protobuf_INCLUDE_DIRS})
-target_link_libraries(proto_gen ${Protobuf_LIBRARIES})
+target_link_libraries(proto_gen PUBLIC ${Protobuf_LIBRARIES})
 
 # ============================================================
-# Include paths
+# Include paths (for project headers like chat/protocol.h)
 # ============================================================
 
 include_directories(${CMAKE_SOURCE_DIR}/include)
-include_directories(${PROTO_OUT})
 
 # ============================================================
 # chat_server
