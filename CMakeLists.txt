@@ -8,8 +8,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Find dependencies
 # ============================================================
 
-# Protobuf
 find_package(Protobuf REQUIRED)
+find_package(Threads REQUIRED)
 
 # Qt – try Qt6 first, fall back to Qt5
 find_package(Qt6 COMPONENTS Widgets QUIET)
@@ -22,18 +22,35 @@ else()
     set(QT_LIBS Qt5::Widgets)
 endif()
 
-# pthreads
-find_package(Threads REQUIRED)
-
 # ============================================================
-# Generate protobuf sources into a static library
+# Generate protobuf sources manually
 # ============================================================
-# Building proto sources as a library ensures all .pb.h files
-# are generated BEFORE any server/client source file compiles.
-# This prevents "file not found" errors in parallel builds.
+# We invoke protoc once to generate ALL .pb.cc/.pb.h files,
+# then compile them into a static library. This guarantees
+# every generated file exists before any compilation starts.
 
 set(PROTO_DIR "${CMAKE_SOURCE_DIR}/protos")
+set(PROTO_OUT "${CMAKE_BINARY_DIR}/proto_gen")
+file(MAKE_DIRECTORY ${PROTO_OUT})
 
+# List of proto files (basenames only, paths handled below)
+set(PROTO_BASENAMES
+    common
+    register
+    message_general
+    message_dm
+    change_status
+    list_users
+    get_user_info
+    quit
+    server_response
+    all_users
+    for_dm
+    broadcast_messages
+    get_user_info_response
+)
+
+# Full paths to .proto source files
 set(PROTO_FILES
     ${PROTO_DIR}/common.proto
     ${PROTO_DIR}/cliente-side/register.proto
@@ -50,12 +67,34 @@ set(PROTO_FILES
     ${PROTO_DIR}/server-side/get_user_info_response.proto
 )
 
-protobuf_generate_cpp(PROTO_SRCS PROTO_HDRS ${PROTO_FILES})
+# Build lists of expected generated files
+set(PROTO_SRCS "")
+set(PROTO_HDRS "")
+foreach(base ${PROTO_BASENAMES})
+    list(APPEND PROTO_SRCS "${PROTO_OUT}/${base}.pb.cc")
+    list(APPEND PROTO_HDRS "${PROTO_OUT}/${base}.pb.h")
+endforeach()
 
-# Static library for generated protobuf code
+# Single custom command that generates ALL proto files at once
+add_custom_command(
+    OUTPUT ${PROTO_SRCS} ${PROTO_HDRS}
+    COMMAND ${Protobuf_PROTOC_EXECUTABLE}
+        --proto_path=${PROTO_DIR}
+        --cpp_out=${PROTO_OUT}
+        ${PROTO_FILES}
+    DEPENDS ${PROTO_FILES}
+    COMMENT "Generating protobuf sources..."
+    VERBATIM
+)
+
+# Custom target that depends on all generated files
+add_custom_target(generate_protos DEPENDS ${PROTO_SRCS} ${PROTO_HDRS})
+
+# Static library from generated protobuf code
 add_library(proto_gen STATIC ${PROTO_SRCS} ${PROTO_HDRS})
 set_target_properties(proto_gen PROPERTIES AUTOMOC OFF)
-target_include_directories(proto_gen PUBLIC ${CMAKE_CURRENT_BINARY_DIR})
+add_dependencies(proto_gen generate_protos)
+target_include_directories(proto_gen PUBLIC ${PROTO_OUT})
 target_include_directories(proto_gen PUBLIC ${Protobuf_INCLUDE_DIRS})
 target_link_libraries(proto_gen ${Protobuf_LIBRARIES})
 
@@ -64,26 +103,21 @@ target_link_libraries(proto_gen ${Protobuf_LIBRARIES})
 # ============================================================
 
 include_directories(${CMAKE_SOURCE_DIR}/include)
-include_directories(${CMAKE_CURRENT_BINARY_DIR})
+include_directories(${PROTO_OUT})
 
 # ============================================================
-# chat_server target
+# chat_server
 # ============================================================
 
 add_executable(chat_server
     src/server/main.cpp
     src/server/server.cpp
 )
-
 set_target_properties(chat_server PROPERTIES AUTOMOC OFF)
-
-target_link_libraries(chat_server
-    proto_gen
-    Threads::Threads
-)
+target_link_libraries(chat_server proto_gen Threads::Threads)
 
 # ============================================================
-# chat_client target
+# chat_client
 # ============================================================
 
 add_executable(chat_client
@@ -91,15 +125,6 @@ add_executable(chat_client
     src/client/mainwindow.cpp
     src/client/network.cpp
 )
-
 set_target_properties(chat_client PROPERTIES AUTOMOC ON)
-
-target_include_directories(chat_client PRIVATE
-    ${CMAKE_SOURCE_DIR}/src/client
-)
-
-target_link_libraries(chat_client
-    proto_gen
-    ${QT_LIBS}
-    Threads::Threads
-)
+target_include_directories(chat_client PRIVATE ${CMAKE_SOURCE_DIR}/src/client)
+target_link_libraries(chat_client proto_gen ${QT_LIBS} Threads::Threads)
