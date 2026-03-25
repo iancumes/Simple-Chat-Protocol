@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Find dependencies
 # ============================================================
 
-find_package(Protobuf REQUIRED)
+find_package(protobuf CONFIG REQUIRED)
 find_package(Threads REQUIRED)
 
 find_package(Qt6 COMPONENTS Widgets QUIET)
@@ -73,7 +73,7 @@ endforeach()
 # "cliente-side/register.proto").
 add_custom_command(
     OUTPUT  ${PROTO_SRCS} ${PROTO_HDRS}
-    COMMAND ${Protobuf_PROTOC_EXECUTABLE}
+    COMMAND protobuf::protoc
         --proto_path=${PROTO_DIR}/cliente-side
         --proto_path=${PROTO_DIR}/server-side
         --proto_path=${PROTO_DIR}
@@ -91,7 +91,7 @@ add_library(proto_gen STATIC ${PROTO_SRCS})
 set_target_properties(proto_gen PROPERTIES AUTOMOC OFF)
 target_include_directories(proto_gen PUBLIC ${PROTO_OUT})
 target_include_directories(proto_gen PUBLIC ${Protobuf_INCLUDE_DIRS})
-target_link_libraries(proto_gen PUBLIC ${Protobuf_LIBRARIES})
+target_link_libraries(proto_gen PUBLIC protobuf::libprotobuf)
 
 # ============================================================
 # Include paths (for project headers like chat/protocol.h)
